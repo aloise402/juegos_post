@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Postemporada - Liga LEGENDS</title>
+<style>
+  body{
+    margin:0;
+    font-family:Arial,Helvetica,sans-serif;
+    background:#0c1220;
+    color:#fff;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    min-height:100vh;
+  }
+  header{
+    width:100%;
+    padding:20px;
+    text-align:center;
+    background:linear-gradient(90deg,#002D72,#D50032);
+    color:#FFD700;
+  }
+  header h1{
+    margin:0;
+    font-size:1.6rem;
+    text-transform:uppercase;
+    letter-spacing:1px;
+  }
+  .container{
+    width:95%;
+    max-width:900px;
+    margin:20px auto;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    background:#1a1f35;
+    border:2px solid #FFD700;
+    border-radius:10px;
+    overflow:hidden;
+  }
+  th,td{
+    padding:10px;
+    border:1px solid #444;
+    text-align:center;
+    font-size:.9rem;
+  }
+  th{
+    background:#1f4068;
+    color:#FFD700;
+    text-transform:uppercase;
+  }
+  tr:nth-child(even){
+    background:#001a40;
+  }
+  .no-games{
+    text-align:center;
+    padding:20px;
+    font-size:1rem;
+    color:#FFD700;
+  }
+  .summary{
+    margin:15px 0;
+    text-align:center;
+    font-size:1rem;
+    font-weight:bold;
+    color:#FFD700;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>📅 Juegos de Postemporada<br>(09-09-2025 al 21-09-2025)</h1>
+  </header>
+
+  <div class="container">
+    <div id="summary" class="summary">Cargando datos...</div>
+    <table id="gamesTable">
+      <thead>
+        <tr>
+          <th>Fecha (Chile)</th>
+          <th>Home</th>
+          <th>Score</th>
+          <th>Away</th>
+        </tr>
+      </thead>
+      <tbody id="gamesBody">
+        <tr><td colspan="4" class="no-games">Cargando juegos...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+<script>
+async function loadGames(){
+  try{
+    const response = await fetch("games_postseason.json");
+    if(!response.ok){
+      document.getElementById("gamesBody").innerHTML =
+        `<tr><td colspan="4" class="no-games">❌ No se pudo cargar el archivo de juegos</td></tr>`;
+      return;
+    }
+    const data = await response.json();
+    const games = data.items || [];
+    const count = data.count || games.length;
+
+    document.getElementById("summary").innerHTML =
+      `⚾ Total de juegos capturados: ${count}`;
+
+    if(games.length === 0){
+      document.getElementById("gamesBody").innerHTML =
+        `<tr><td colspan="4" class="no-games">⚾ No hay juegos registrados aún</td></tr>`;
+      return;
+    }
+
+    let rows = "";
+    games.forEach(g=>{
+      const fecha = g.date_local_scl || g.date_utc || "-";
+      const home = g.home || "???";
+      const away = g.away || "???";
+      let score;
+      if ((g.home_runs ?? 0) === 0 && (g.away_runs ?? 0) === 0) {
+        score = "RESETEADO";
+      } else {
+        score = `${g.home_runs ?? "-"} - ${g.away_runs ?? "-"}`;
+      }
+      rows += `
+        <tr>
+          <td>${fecha}</td>
+          <td>${home}</td>
+          <td>${score}</td>
+          <td>${away}</td>
+        </tr>`;
+    });
+    document.getElementById("gamesBody").innerHTML = rows;
+  }catch(e){
+    document.getElementById("gamesBody").innerHTML =
+      `<tr><td colspan="4" class="no-games">⚠️ Error al leer juegos</td></tr>`;
+  }
+}
+loadGames();
+</script>
+</body>
+</html>
