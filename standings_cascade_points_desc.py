@@ -68,8 +68,8 @@ DAY_WINDOW_MODE = conf["DAY_WINDOW_MODE"]  # "calendar" o "sports"
 API = "https://mlb25.theshow.com/apis/game_history.json"
 PLATFORM = "psn"
 MODE = "LEAGUE"
-SINCE = datetime(2025, 9, 8)
-PAGES = (1, 2, 3)          # <-- SOLO p1 y p2, como validaste
+SINCE = datetime(2025, 8, 23)
+PAGES = (1, 2, 3, 4, 5, 6)          # <-- SOLO p1 y p2, como validaste
 TIMEOUT = 20
 RETRIES = 2
 
@@ -484,5 +484,3 @@ def games_played_today_scl():
 
 
 # ====== FIN DEL BLOQUE ======
-
-
