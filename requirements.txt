@@ -1,4 +1,131 @@
-flask
-requests
-tzdata
-gunicorn
+# standings_cascade_points.py
+# ================================================================
+# Este script construye la tabla de posiciones de la liga.
+# 
+# Columnas mostradas:
+#   Pos | Equipo | Jugador | Prog(13) | JJ | W | L | Por jugar | Pts
+#
+# Reglas principales:
+#   - Se filtran solo juegos del modo LEAGUE y después de cierta fecha.
+#   - Se cuentan partidos válidos donde al menos uno de los rivales
+#     pertenece a la liga (miembro vs miembro o miembro vs CPU).
+#   - Se deduplica por ID de juego para evitar duplicados.
+#   - Se aplican ajustes algebraicos de W/L y ajustes manuales de puntos.
+#
+# Orden de tabla:
+#   1. Por puntos (descendente),
+#   2. Si hay empate, por W (descendente),
+#   3. Luego por L (ascendente).
+# ================================================================
+
+import requests, time, re, os, json
+from datetime import datetime
+
+# ===== Config general =====
+
+# --- Selector de modo de ejecución ---
+# "DEBUG" → imprime información detallada y genera archivos intermedios
+# "ONLINE" → silencioso, sin dumps extras
+MODE = "ONLINE"  # ← cambiar a "DEBUG" para validar localmente
+
+# Configuración específica por modo
+CFG = {
+    "DEBUG": dict(
+        PRINT_DETAILS=False,          # muestra detalles línea a línea
+        PRINT_CAPTURE_SUMMARY=True,   # imprime resumen de capturas por equipo
+        PRINT_CAPTURE_LIST=False,     # NO imprime juego por juego
+        DUMP_ENABLED=True,            # guarda JSON de apoyo en /out
+        STOP_AFTER_N=None,            # procesa todos los equipos
+        DAY_WINDOW_MODE="calendar",   # "hoy" = 00:00–23:59 (Chile)
+    ),
+    "ONLINE": dict(
+        PRINT_DETAILS=False,          # silencioso
+        PRINT_CAPTURE_SUMMARY=False,  # no imprime resúmenes
+        PRINT_CAPTURE_LIST=False,     # no imprime juegos
+        DUMP_ENABLED=False,           # no genera JSONs
+        STOP_AFTER_N=None,            # procesa todos
+        DAY_WINDOW_MODE="sports",     # "hoy" = 06:00–05:59 (día deportivo)
+    ),
+}
+
+# Aplicar config del modo elegido
+conf = CFG.get(MODE, CFG["DEBUG"])
+
+# Variables derivadas de la config seleccionada
+PRINT_DETAILS = conf["PRINT_DETAILS"]
+PRINT_CAPTURE_SUMMARY = conf["PRINT_CAPTURE_SUMMARY"]
+PRINT_CAPTURE_LIST = conf["PRINT_CAPTURE_LIST"]
+DUMP_ENABLED = conf["DUMP_ENABLED"]
+STOP_AFTER_N = conf["STOP_AFTER_N"]
+DAY_WINDOW_MODE = conf["DAY_WINDOW_MODE"]  # "calendar" o "sports"
+
+# ===== Config de API =====
+API = "https://mlb25.theshow.com/apis/game_history.json"
+PLATFORM = "psn"
+MODE = "LEAGUE"                # Modo de juego que se analiza
+SINCE = datetime(2025, 9, 11)  # Fecha de inicio de la liga
+PAGES = (1, 2)                 # Solo páginas 1 y 2 de la API
+TIMEOUT = 20                   # timeout de requests en segundos
+RETRIES = 2                    # reintentos en caso de error
+
+# ===== Liga: jugadores y equipos asignados =====
+LEAGUE_ORDER = [
+    ("THELSURICATO", "Mets"),
+    ("machado_seba-03", "Reds"),
+    ("zancudo99", "Rangers"),
+    ("havanavcr10", "Brewers"),
+    ("Juanbrachog", "Tigers"),
+    ("WILZULIA", "Royals"),
+    ("Daviddiaz030425", "Guardians"),
+    ("Juanchojs28", "Giants"),
+    ("me_dicencarlitos", "Marlins"),
+    ("Bufon3-0", "Athletics"),
+    ("edwar13-21", "Blue Jays"),
+    ("mrguerrillas", "Pirates"),
+    ("Diamondmanager", "Astros"),
+    ("Tu_Pauta2000", "Braves"),
+]
+
+# ===== Aliases (IDs alternativos por jugador) =====
+# Sirve si un participante usa más de una cuenta en la API.
+FETCH_ALIASES = {
+    # "UsuarioPrincipal": ["CuentaAlterna1", "CuentaAlterna2"],
+}
+
+# ===== Ajustes algebraicos de récord (W/L) =====
+# Útil para corregir manualmente si faltan juegos,
+# o para reflejar resets en la consola.
+TEAM_RECORD_ADJUSTMENTS = {
+    "Marlins": (0, 3),
+    "Astros": (4, 2),
+    "Brewers": (7, 3),
+    "Mets": (5, 1),
+    "Royals": (4, 1),
+    "Guardians": (3, 2),
+    "Pirates": (2, 1),
+    "Tigers": (2, 1),
+    "Braves": (2, 3),
+    "Blue Jays": (3, 4),
+    "Athletics": (1, 3),
+    "Giants": (2, 5),
+    "Reds": (0, 5),
+}
+
+# ===== Ajustes manuales de PUNTOS =====
+# Se usa en casos especiales: sanciones, desconexiones, bonificaciones.
+TEAM_POINT_ADJUSTMENTS = {
+    # "Equipo": (-1, "Desconexión vs X"),
+    # "Equipo": (+1, "Fair play"),
+}
+
+# ===== Construcción del set de miembros de liga =====
+LEAGUE_USERS = {u for (u, _t) in LEAGUE_ORDER}
+for base, alts in FETCH_ALIASES.items():
+    LEAGUE_USERS.add(base)
+    LEAGUE_USERS.update(alts)
+
+# Aliases extra históricos (ejemplo)
+LEAGUE_USERS.update({"AiramReynoso_", "Yosoyreynoso_"})
+
+# Normalización (minúsculas)
+LEAGUE_USERS_NORM = {u.lower() for u
